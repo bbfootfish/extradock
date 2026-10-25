@@ -16,8 +16,11 @@ A macOS menu bar app that mirrors your Dock on every connected monitor. macOS on
 - **优化：dock 外观更接近原生**
   - 背景材质由深色 `.hudWindow`（HUD 灰）改为浅色磨砂 `.popover`，保留 vibrancy 毛玻璃，圆角 16 → 20，整体观感更贴近系统 dock。
   - 运行指示点由「4px 白圆点 + 图标被上推」改为「图标居中 + 底部居中的小胶囊形指示」，对齐原生 dock 样式。
+- **补齐系统固定项：Finder 与垃圾桶**
+  - 原因：在 macOS（尤其 Tahoe）下，Finder 与垃圾桶由 Dock 自身渲染，**不写入 `com.apple.dock.plist` 的瓦片数据**，原版 ExtraDock 只读 plist，因此永远缺失这两项。
+  - 修复：在 `DockConfigReader` 中合成这两个固定项——`Finder` 置于最左、`废纸篓` 置于最右，并随 `trash-full` 切换空/满图标，点击行为与原生一致（Finder 激活/打开，垃圾桶在 Finder 中打开）。
 
-> 改动文件：`ExtraDock/Views/DockItemView.swift`、`ExtraDock/Windows/MirrorDockPanel.swift`
+> 改动文件：`ExtraDock/Views/DockItemView.swift`、`ExtraDock/Windows/MirrorDockPanel.swift`、`ExtraDock/Services/DockConfigReader.swift`
 
 ## Features
 

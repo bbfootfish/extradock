@@ -52,7 +52,53 @@ struct DockConfigReader {
             }
         }
 
+        // Inject system items that the real Dock renders but are NOT stored as
+        // tiles in com.apple.dock.plist:
+        //  - Finder is always shown at the far left (like the native Dock).
+        //  - Trash is always shown at the far right of the "others" section.
+        if let finder = Self.makeFinderItem() {
+            items.insert(finder, at: 0)
+        }
+        if let trash = Self.makeTrashItem(isFull: plist["trash-full"] as? Bool ?? false) {
+            items.append(trash)
+        }
+
         return (items: items, tileSize: tileSize, orientation: orientation)
+    }
+
+    // MARK: - System items (Finder / Trash)
+
+    /// The real Dock always shows Finder at the far left, but it is not a
+    /// persistent-app tile in the plist — synthesize it so the mirror matches.
+    private static func makeFinderItem() -> DockItem? {
+        let path = "/System/Library/CoreServices/Finder.app"
+        let icon = NSWorkspace.shared.icon(forFile: path)
+        let isRunning = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first != nil
+        return DockItem(
+            id: "system-finder",
+            name: "Finder",
+            bundleIdentifier: "com.apple.finder",
+            path: path,
+            icon: icon,
+            isRunning: isRunning,
+            section: .pinnedApps
+        )
+    }
+
+    /// The real Dock always shows the Trash at the far right, but it is rendered
+    /// by the system (not a persistent-other tile) — synthesize it so the mirror matches.
+    private static func makeTrashItem(isFull: Bool) -> DockItem? {
+        let trashPath = (NSHomeDirectory() as NSString).appendingPathComponent(".Trash")
+        let icon = NSImage(named: isFull ? "NSImageNameTrashFull" : "NSImageNameTrashEmpty")
+            ?? NSWorkspace.shared.icon(forFile: trashPath)
+        return DockItem(
+            id: "system-trash",
+            name: "废纸篓",
+            bundleIdentifier: nil,
+            path: trashPath,
+            icon: icon,
+            section: .persistentOthers
+        )
     }
 
     // MARK: - Private helpers
