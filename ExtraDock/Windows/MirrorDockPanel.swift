@@ -41,13 +41,15 @@ class MirrorDockPanel: NSPanel {
         self.hidesOnDeactivate = false
         self.isMovableByWindowBackground = false
 
-        // Add visual effect background (frosted glass)
+        // Add visual effect background (frosted glass).
+        // Use a light, native-looking material instead of `.hudWindow` (which is a dark
+        // HUD-gray and makes the dock look noticeably different from the system Dock).
         let visualEffect = NSVisualEffectView()
-        visualEffect.material = .hudWindow
+        visualEffect.material = .popover
         visualEffect.state = .active
         visualEffect.blendingMode = .behindWindow
         visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = 16
+        visualEffect.layer?.cornerRadius = 20
         visualEffect.layer?.masksToBounds = true
 
         // Host the SwiftUI DockBarView

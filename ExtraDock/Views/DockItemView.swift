@@ -9,35 +9,36 @@ struct DockItemView: View {
     @State private var isPressed = false
 
     var body: some View {
-        VStack(spacing: 2) {
-                ZStack(alignment: .topTrailing) {
-                    Image(nsImage: item.icon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: tileSize - 8, height: tileSize - 8)
-                        .scaleEffect(isHovered ? 1.15 : (isPressed ? 0.88 : 1.0))
-                        .offset(y: bounceOffset)
-                        .animation(.easeInOut(duration: 0.15), value: isHovered)
-                        .animation(.spring(response: 0.2, dampingFraction: 0.4), value: bounceOffset)
-                        .animation(.easeInOut(duration: 0.08), value: isPressed)
+        ZStack(alignment: .topTrailing) {
+            Image(nsImage: item.icon)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: tileSize - 8, height: tileSize - 8)
+                .scaleEffect(isHovered ? 1.15 : (isPressed ? 0.88 : 1.0))
+                .offset(y: bounceOffset)
+                .animation(.easeInOut(duration: 0.15), value: isHovered)
+                .animation(.spring(response: 0.2, dampingFraction: 0.4), value: bounceOffset)
+                .animation(.easeInOut(duration: 0.08), value: isPressed)
 
-                    // Badge count
-                    if let badge = item.badgeCount {
-                        Text(badge)
-                            .font(.system(size: max(9, tileSize * 0.2), weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(Color.red))
-                            .offset(x: 4, y: -2)
-                    }
-                }
-
-                // Running indicator dot
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 4, height: 4)
-                    .opacity(item.isRunning ? 1 : 0)
+            // Badge count
+            if let badge = item.badgeCount {
+                Text(badge)
+                    .font(.system(size: max(9, tileSize * 0.2), weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.red))
+                    .offset(x: 4, y: -2)
+            }
+        }
+        // Running indicator: a small pill pinned to the bottom-center of the tile,
+        // matching the native Dock's indicator (icon stays centered).
+        .overlay(alignment: .bottom) {
+            Capsule()
+                .fill(Color.white)
+                .frame(width: max(8, tileSize * 0.18), height: max(3, tileSize * 0.07))
+                .padding(.bottom, 2)
+                .opacity(item.isRunning ? 0.9 : 0)
         }
         .frame(width: tileSize, height: tileSize)
         .help(item.name)
@@ -69,10 +70,17 @@ struct DockItemView: View {
             bounceOffset = 0
         }
 
-        // Perform action
+        // Perform action: bring the app to the foreground (matches native Dock behavior).
+        // `activate()` with no options is deprecated and does NOT force the target app to
+        // the front when invoked from a background (non-activating) app, so the click
+        // appears to do nothing. `activate(options: .activateIgnoringOtherApps)` reliably
+        // brings it forward, switches to its Space, and un-hides it.
         if let bundleID = item.bundleIdentifier,
            let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
-            app.activate()
+            app.activate(options: .activateIgnoringOtherApps)
+            if app.isHidden {
+                app.unhide()
+            }
         } else {
             NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
         }
