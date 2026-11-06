@@ -70,19 +70,25 @@ struct DockItemView: View {
             bounceOffset = 0
         }
 
-        // Perform action: bring the app to the foreground (matches native Dock behavior).
-        // `activate()` with no options is deprecated and does NOT force the target app to
-        // the front when invoked from a background (non-activating) app, so the click
-        // appears to do nothing. `activate(options: .activateIgnoringOtherApps)` reliably
-        // brings it forward, switches to its Space, and un-hides it.
+        // Bring the target app to the foreground (matches native Dock behavior).
+        // ExtraDock runs as an accessory app inside a non-activating panel, so the legacy
+        // .activateIgnoringOtherApps flag is ignored on macOS 14+ and clicking an already
+        // running app icon appeared to do nothing. openApplication(at:configuration:) is
+        // system-brokered and still activates the target while ExtraDock is in the background.
+        let appURL = URL(fileURLWithPath: item.path)
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.createsNewApplicationInstance = false
+
         if let bundleID = item.bundleIdentifier,
            let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
-            app.activate(options: .activateIgnoringOtherApps)
             if app.isHidden {
                 app.unhide()
             }
+            NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, _ in }
+            app.activate(options: [.activateAllWindows])
         } else {
-            NSWorkspace.shared.open(URL(fileURLWithPath: item.path))
+            NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, _ in }
         }
     }
 

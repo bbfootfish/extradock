@@ -18,9 +18,10 @@ class DockState {
     // newly added items get the running flag from the provided set if available.
     func updateItems(_ newItems: [DockItem]) {
         // Build a lookup of current running state by path (path is stable across reloads)
-        let runningByPath: [String: Bool] = Dictionary(
-            uniqueKeysWithValues: items.map { ($0.path, $0.isRunning) }
-        )
+        // Duplicate paths are possible (e.g. an app listed in both persistent-apps and
+        // recent-apps). Dictionary(uniqueKeysWithValues:) traps on duplicate keys and killed
+        // the app, so merge defensively instead.
+        let runningByPath: [String: Bool] = items.reduce(into: [:]) { $0[$1.path] = $1.isRunning }
 
         items = newItems.map { item in
             var updated = item

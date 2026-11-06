@@ -34,8 +34,10 @@ struct DockConfigReader {
             }
         }
 
-        // recent-apps
-        if let recentApps = plist["recent-apps"] as? [[String: Any]] {
+        // recent-apps — the native Dock hides this area when "Show recent applications in Dock"
+        // is switched off, so mirror the same flag instead of always showing recent-apps.
+        let showRecents = (plist["show-recents"] as? Bool) ?? true
+        if showRecents, let recentApps = plist["recent-apps"] as? [[String: Any]] {
             for entry in recentApps {
                 if let item = parsePersistentApp(entry, section: .recentApps) {
                     items.append(item)
@@ -56,6 +58,11 @@ struct DockConfigReader {
         // tiles in com.apple.dock.plist:
         //  - Finder is always shown at the far left (like the native Dock).
         //  - Trash is always shown at the far right of the "others" section.
+        // Deduplicate by path: the same app can show up in both persistent-apps and
+        // recent-apps. Duplicate paths later trapped in DockState.updateItems and crashed the app.
+        var seenPaths = Set<String>()
+        items = items.filter { seenPaths.insert($0.path).inserted }
+
         if let finder = Self.makeFinderItem() {
             items.insert(finder, at: 0)
         }
@@ -70,6 +77,66 @@ struct DockConfigReader {
 
     /// The real Dock always shows Finder at the far left, but it is not a
     /// persistent-app tile in the plist — synthesize it so the mirror matches.
+    /// Reproduces the native Dock layout:
+    /// Finder + pinned apps, then running apps that are not pinned, then recent apps,
+    /// then the right-hand items (folders / Trash).
+    static func merge(configItems: [DockItem], runningApps: [RunningAppInfo]) -> [DockItem] {
+        let runningIDs = Set(runningApps.compactMap { $0.bundleIdentifier })
+
+        var merged: [DockItem] = []
+        var seenPaths = Set<String>()
+        var seenBundleIDs = Set<String>()
+
+        func append(_ item: DockItem) {
+            guard !seenPaths.contains(item.path) else { return }
+            if let bid = item.bundleIdentifier, seenBundleIDs.contains(bid) { return }
+            seenPaths.insert(item.path)
+            if let bid = item.bundleIdentifier { seenBundleIDs.insert(bid) }
+            merged.append(item)
+        }
+
+        var pinned = configItems.filter { $0.section == .pinnedApps }
+        var recent = configItems.filter { $0.section == .recentApps }
+        let others = configItems.filter { $0.section == .persistentOthers }
+
+        for index in pinned.indices {
+            if let bid = pinned[index].bundleIdentifier {
+                pinned[index].isRunning = runningIDs.contains(bid)
+            }
+            append(pinned[index])
+        }
+
+        for app in runningApps where !seenPaths.contains(app.path) {
+            if let bid = app.bundleIdentifier, seenBundleIDs.contains(bid) { continue }
+            append(makeRunningItem(for: app))
+        }
+
+        for index in recent.indices {
+            if let bid = recent[index].bundleIdentifier {
+                recent[index].isRunning = runningIDs.contains(bid)
+            }
+            append(recent[index])
+        }
+
+        for item in others {
+            append(item)
+        }
+
+        return merged
+    }
+
+    /// Builds a dock item for an app that is running but not pinned in the real Dock.
+    /// The native Dock shows every running application, so the mirror has to synthesize them.
+    static func makeRunningItem(for app: RunningAppInfo) -> DockItem {
+        let icon = NSWorkspace.shared.icon(forFile: app.path)
+        return DockItem(name: app.name,
+                        bundleIdentifier: app.bundleIdentifier,
+                        path: app.path,
+                        icon: icon,
+                        isRunning: true,
+                        section: .runningApps)
+    }
+
     private static func makeFinderItem() -> DockItem? {
         let path = "/System/Library/CoreServices/Finder.app"
         let icon = NSWorkspace.shared.icon(forFile: path)

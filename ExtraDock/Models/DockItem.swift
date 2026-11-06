@@ -6,6 +6,9 @@ import AppKit
 
 enum DockSection {
     case pinnedApps
+    /// Apps that are currently running but not pinned in the real Dock.
+    /// The native Dock always lists every running application, so the mirror has to as well.
+    case runningApps
     case recentApps
     case persistentOthers
 }

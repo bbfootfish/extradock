@@ -37,10 +37,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var runningAppsMonitor: RunningAppsMonitor!
     var badgeReader: BadgeReader!
     private var settingsWindow: NSWindow?
+    /// Items parsed from com.apple.dock.plist, before running applications are merged in.
+    private var configItems: [DockItem] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Initial dock read
         let result = DockConfigReader.parse()
+        configItems = result.items
         dockState.items = result.items
         dockState.tileSize = result.tileSize
         dockState.orientation = result.orientation
@@ -53,22 +56,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         plistWatcher.onChange = { [weak self] in
             guard let self else { return }
             let newResult = DockConfigReader.parse()
-            self.dockState.updateItems(newResult.items)
+            self.configItems = newResult.items
             self.dockState.tileSize = UserDefaults.standard.object(forKey: "tileSizeOverride") as? CGFloat ?? newResult.tileSize
             self.dockState.orientation = newResult.orientation
-            for (_, panel) in self.screenMonitor.panels {
-                panel.updatePosition()
-            }
+            self.rebuildItems()
         }
 
         // Set up running apps monitor
         runningAppsMonitor = RunningAppsMonitor()
-        runningAppsMonitor.onChange = { [weak self] bundleIDs in
-            self?.dockState.updateRunningApps(bundleIDs)
+        runningAppsMonitor.onChange = { [weak self] _ in
+            self?.rebuildItems()
         }
 
-        // Apply initial running state
-        dockState.updateRunningApps(runningAppsMonitor.runningBundleIDs)
+        // Merge the first snapshot of running applications into the mirrored list
+        rebuildItems()
 
         // Set up badge reader (Accessibility API)
         badgeReader = BadgeReader()
@@ -78,11 +79,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         badgeReader.start()
     }
 
+    /// Rebuilds the mirrored list the way the native Dock lays it out.
+    func rebuildItems() {
+        guard !configItems.isEmpty else { return }
+        let running = runningAppsMonitor?.runningApps ?? []
+        dockState.items = DockConfigReader.merge(configItems: configItems, runningApps: running)
+
+        if let screenMonitor {
+            for (_, panel) in screenMonitor.panels {
+                panel.updatePosition()
+            }
+        }
+    }
+
     func reloadDock() {
         let result = DockConfigReader.parse()
-        dockState.updateItems(result.items)
+        configItems = result.items
         dockState.tileSize = UserDefaults.standard.object(forKey: "tileSizeOverride") as? CGFloat ?? result.tileSize
         dockState.orientation = result.orientation
+        rebuildItems()
         screenMonitor.refreshPanels()
     }
 
