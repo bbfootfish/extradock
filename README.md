@@ -10,17 +10,31 @@ A macOS menu bar app that mirrors your Dock on every connected monitor. macOS on
 
 ### Improvements in this fork / 本派生版本做的优化改进
 
-- **修复：点击 dock 图标无法调出应用（原生 dock 可以）**
-  - 原因：原代码使用 `app.activate()`（无参数，已废弃），从后台/非激活 app 调用时不会把目标 app 推到前台，点击看似无反应。
-  - 修复：改为 `app.activate(options: .activateIgnoringOtherApps)`，并补充 `app.isHidden` 时 `unhide()`，与原生 dock 行为一致（强推前台、自动切换所在桌面、取消隐藏）。
-- **优化：dock 外观更接近原生**
-  - 背景材质由深色 `.hudWindow`（HUD 灰）改为浅色磨砂 `.popover`，保留 vibrancy 毛玻璃，圆角 16 → 20，整体观感更贴近系统 dock。
-  - 运行指示点由「4px 白圆点 + 图标被上推」改为「图标居中 + 底部居中的小胶囊形指示」，对齐原生 dock 样式。
-- **补齐系统固定项：Finder 与垃圾桶**
-  - 原因：在 macOS（尤其 Tahoe）下，Finder 与垃圾桶由 Dock 自身渲染，**不写入 `com.apple.dock.plist` 的瓦片数据**，原版 ExtraDock 只读 plist，因此永远缺失这两项。
-  - 修复：在 `DockConfigReader` 中合成这两个固定项——`Finder` 置于最左、`废纸篓` 置于最右，并随 `trash-full` 切换空/满图标，点击行为与原生一致（Finder 激活/打开，垃圾桶在 Finder 中打开）。
+Upstream baseline / 上游基线：`henningziech/extradock` @ `e9cdd80`（Fix dock scale: use observable DockState.scale for consistent sizing）。
+以下为本 fork 在该基线之上的全部改动，每项注明它替换掉的上游原有行为。
 
-> 改动文件：`ExtraDock/Views/DockItemView.swift`、`ExtraDock/Windows/MirrorDockPanel.swift`、`ExtraDock/Services/DockConfigReader.swift`
+**1. 修复：点击 dock 图标无法调出应用（commit `f8a726a`，`d016a09` 重写）**
+- 上游行为：使用无参 `app.activate()`（已废弃），从后台/非激活 app 调用时不会把目标 app 推到前台，点击看似无反应。
+- 本 fork：先 `unhide()`，再 `NSWorkspace.openApplication(activates: true)`，最后 `activate(.activateAllWindows)`。中间版本曾用 `activateIgnoringOtherApps`，该选项在 macOS 14+ 已被系统忽略，故弃用。已是前台/运行中的应用也能被切到前台，隐藏应用可被唤起。
+
+**2. 优化：dock 外观更接近原生（commit `f8a726a`）**
+- 背景材质由 `.hudWindow`（HUD 灰）改为浅色磨砂 `.popover`，保留 vibrancy 毛玻璃，圆角 16 → 20。
+- 运行指示点由「4px 白圆点 + 图标被上推」改为「图标居中 + 底部居中的胶囊形指示」。
+
+**3. 补齐系统固定项：Finder 与废纸篓（commit `f247fc8`）**
+- 上游行为：只读 `com.apple.dock.plist` 的瓦片数据；但在 macOS（尤其 Tahoe）下 Finder 与废纸篓由 Dock 自身渲染、**不写入该 plist**，因此原版永远缺失这两项。
+- 本 fork：在 `DockConfigReader` 中合成——`Finder` 置最左、`废纸篓` 置最右，随 `trash-full` 切换空/满图标，点击行为与原生一致。
+
+**4. 修复崩溃 + 列表与系统 Dock 对齐（commit `d016a09`）**
+- 崩溃（主因）：`DockState.updateItems` 用 `Dictionary(uniqueKeysWithValues:)` 按路径建表，当同一应用同时出现在 `persistent-apps` 与 `recent-apps` 时重复键触发 `fatalError` 直接闪退；2 秒轮询反复重载，表现为「用着用着就消失」。本 fork 改为 `reduce` 合并，并在解析时按路径去重。
+- 列表不一致：上游只读固定项与最近项，缺少**运行中但未固定**的应用（实测漏 5 个）。`RunningAppsMonitor` 改为输出全部 Dock 可见的前台型应用并按启动时间排序；合并顺序对齐系统（访达 → 固定 → 运行中未固定 → 最近 → 文件夹/废纸篓），按路径 + bundleID 双重去重。
+- 渲染：由「固定 | 最近 | 其他」三段（两根分隔线）改为单一应用区 + 一根分隔线，与系统一致；并遵循 `show-recents` 开关。
+
+**5. 只在副屏显示，主屏屏蔽（commit `b7d5db7`）**
+- 上游行为：每块连接的显示器都创建镜像面板。
+- 本 fork：以 `NSScreen.screens.first`（拥有菜单栏的屏幕）判定主显示器，按 displayID 比对且每次刷新实时计算、不缓存；`refreshPanels()` 先求目标集合 `targetDisplayIDs()`（排除主屏 + 过滤每屏开关）再统一收敛——目标外的面板销毁，目标内的创建或重定位。设置中主屏那行置灰并标注 `Main — mirror dock off`，`isEnabled()` 对主屏强制返回 `false`。屏幕插拔、主屏切换、分辨率变化由 `didChangeScreenParametersNotification` 自动跟随。
+
+> 改动文件（相对上游 `e9cdd80`，12 个文件，+320 / −104）：`ExtraDock/ExtraDockApp.swift`、`ExtraDock/Models/DockItem.swift`、`ExtraDock/Models/DockState.swift`、`ExtraDock/Services/DockConfigReader.swift`、`ExtraDock/Services/RunningAppsMonitor.swift`、`ExtraDock/Services/ScreenMonitor.swift`、`ExtraDock/Views/DockBarView.swift`、`ExtraDock/Views/DockItemView.swift`、`ExtraDock/Views/SettingsView.swift`、`ExtraDock/Windows/MirrorDockPanel.swift`、`LICENSE`、`README.md`
 
 ## Features
 
@@ -29,7 +43,8 @@ A macOS menu bar app that mirrors your Dock on every connected monitor. macOS on
 - Click to launch or switch to apps
 - Folders open in Finder on click
 - Live sync: updates within seconds when you change your Dock
-- Per-monitor toggle in Settings
+- Shown only on secondary displays — the main display (the one owning the menu bar) is excluded automatically and follows primary-display changes
+- Per-monitor toggle in Settings (the main display row is locked off)
 - Frosted glass appearance matching macOS aesthetics
 - Launch at login support
 - Menu-bar-only app (no Dock icon of its own)
