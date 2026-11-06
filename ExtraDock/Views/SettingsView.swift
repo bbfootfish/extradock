@@ -30,6 +30,7 @@ struct SettingsView: View {
                             get: { screenMonitor.isEnabled(entry.id) },
                             set: { screenMonitor.setEnabled(entry.id, enabled: $0) }
                            ))
+                    .disabled(ScreenMonitor.isMainDisplay(entry.screen))
                 }
             }
 
@@ -83,8 +84,8 @@ struct SettingsView: View {
 
     private func screenName(_ screen: NSScreen, displayID: CGDirectDisplayID) -> String {
         let name = screen.localizedName
-        if screen == NSScreen.main {
-            return "\(name) (Main — native Dock)"
+        if ScreenMonitor.isMainDisplay(screen) {
+            return "\(name) (Main — mirror dock off)"
         }
         return name
     }
