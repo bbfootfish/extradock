@@ -19,3 +19,11 @@ docs/plans/
 
 # Debug
 debug.log
+
+# Local code-signing material — NEVER commit certificates or private keys
+*.p12
+*.pfx
+*.pem
+keychain.pass
+trust-settings.plist
+.extradock-signing/

@@ -34,7 +34,14 @@ Upstream baseline / 上游基线：`henningziech/extradock` @ `e9cdd80`（Fix do
 - 上游行为：每块连接的显示器都创建镜像面板。
 - 本 fork：以 `NSScreen.screens.first`（拥有菜单栏的屏幕）判定主显示器，按 displayID 比对且每次刷新实时计算、不缓存；`refreshPanels()` 先求目标集合 `targetDisplayIDs()`（排除主屏 + 过滤每屏开关）再统一收敛——目标外的面板销毁，目标内的创建或重定位。设置中主屏那行置灰并标注 `Main — mirror dock off`，`isEnabled()` 对主屏强制返回 `false`。屏幕插拔、主屏切换、分辨率变化由 `didChangeScreenParametersNotification` 自动跟随。
 
-> 改动文件（相对上游 `e9cdd80`，12 个文件，+320 / −104）：`ExtraDock/ExtraDockApp.swift`、`ExtraDock/Models/DockItem.swift`、`ExtraDock/Models/DockState.swift`、`ExtraDock/Services/DockConfigReader.swift`、`ExtraDock/Services/RunningAppsMonitor.swift`、`ExtraDock/Services/ScreenMonitor.swift`、`ExtraDock/Views/DockBarView.swift`、`ExtraDock/Views/DockItemView.swift`、`ExtraDock/Views/SettingsView.swift`、`ExtraDock/Windows/MirrorDockPanel.swift`、`LICENSE`、`README.md`
+**6. 修复：每次重建后辅助功能授权失效（稳定本地签名）**
+- 问题：ad-hoc 签名（`CODE_SIGN_IDENTITY="-"`）的 designated requirement 退化为按 `cdhash` 精确匹配。ExtraDock 需要辅助功能权限（`AXIsProcessTrusted`，用于读取 Dock 徽标与右键菜单），而 macOS TCC 按代码签名要求记录授权；重新编译后二进制变化 → `cdhash` 变化 → 系统视其为陌生 app，授权静默失效，必须每次去「系统设置 → 隐私与安全性 → 辅助功能」重新勾选。
+- 方案：改用固定的本地自签代码签名证书 `ExtraDock Local Signing`（10 年有效）。DR 从按 `cdhash` 匹配变为 `identifier "com.henningziech.ExtraDock" and certificate root = H"..."`——只锚定证书，重建不改变 DR，授权得以保留。
+- 落地：`scripts/setup_local_signing.sh` 一键生成证书与独立钥匙串（私钥 `-A` + `set-key-partition-list`，签名无需 GUI 交互）；用户域信任用 `add-trusted-cert -o` 生成设置文件再 `trust-settings-import` 导入，避开直接执行时的认证弹窗；构建脚本改用 `CODE_SIGN_IDENTITY="ExtraDock Local Signing"` + `OTHER_CODE_SIGN_FLAGS="--timestamp=none"`，并在安装后校验 DR。
+- 一次性成本：从 ad-hoc 换成证书签名时，需**重新授权一次**辅助功能；此后重建不再需要。
+- 边界：证书与私钥仅存于本机 `~/.extradock-signing/`（已加入 `.gitignore`），**不随仓库分发**；Gatekeeper 仍会拒绝（无 Developer ID / 公证），本地构建解除 quarantine 后可正常运行。对外分发应改用 Developer ID + 公证。
+
+> 改动文件（相对上游 `e9cdd80`）：上述 Swift 源文件（10 个）、`LICENSE`、`README.md`、`.gitignore`、`scripts/setup_local_signing.sh`。签名证书与私钥只存本机，不入库。
 
 ## Features
 
@@ -78,6 +85,30 @@ open ~/Library/Developer/Xcode/DerivedData/ExtraDock-*/Build/Products/Release/
 ```
 
 Then drag `ExtraDock.app` to your `/Applications` folder.
+
+### Stable local signing (recommended if you rebuild often)
+
+An ad-hoc signature causes macOS to drop the **Accessibility** grant on every rebuild, because the designated requirement matches `cdhash`. Sign with a fixed local certificate instead:
+
+```bash
+bash scripts/setup_local_signing.sh       # one-time; creates cert + dedicated keychain
+```
+
+```bash
+CODE_SIGN_STYLE=Manual \
+CODE_SIGN_IDENTITY="ExtraDock Local Signing" \
+OTHER_CODE_SIGN_FLAGS="--timestamp=none" \
+xcodebuild -project ExtraDock.xcodeproj -scheme ExtraDock -configuration Release build
+```
+
+Verify the requirement is certificate-anchored:
+
+```bash
+codesign -dr - path/to/ExtraDock.app
+# designated => identifier "com.henningziech.ExtraDock" and certificate root = H"..."
+```
+
+After switching from ad-hoc, re-enable ExtraDock once in **System Settings → Privacy & Security → Accessibility**. Later rebuilds keep the grant. The certificate and private key stay in `~/.extradock-signing/` on your Mac and must never be committed.
 
 ### From Xcode
 
